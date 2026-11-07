@@ -82,11 +82,33 @@ document.querySelectorAll("[data-goto]").forEach((a) => a.addEventListener("clic
 $("googleBtn").onclick = async () => { try { await be.google(); } catch (e) { authMsg(niceErr(e)); } };
 if (!cfg.googleSignIn) $("googleRow").style.display = "none";
 
+/* Google's own button: the popup shows your site's address instead of the Supabase project address. */
+async function setupGoogleButton() {
+  if (!cfg.googleSignIn || !cfg.googleClientId || !be || !be.googleIdToken) return;
+  try {
+    await new Promise((res, rej) => { if (window.google && google.accounts) return res(); const s = document.createElement("script"); s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    const raw = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hashed = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    google.accounts.id.initialize({
+      client_id: cfg.googleClientId, nonce: hashed, ux_mode: "popup", auto_select: false, cancel_on_tap_outside: true,
+      callback: async (r) => { try { authMsg("Signing you in…", true); await be.googleIdToken(r.credential, raw); } catch (e) { authMsg(niceErr(e)); } },
+    });
+    const wrap = document.createElement("div"); wrap.id = "gsiWrap"; wrap.style.cssText = "display:flex;justify-content:center;min-height:44px";
+    $("googleBtn").after(wrap);
+    google.accounts.id.renderButton(wrap, { theme: "filled_black", size: "large", shape: "pill", text: "continue_with", logo_alignment: "center", width: Math.min(330, Math.max(240, innerWidth - 90)) });
+    $("googleBtn").style.display = "none";
+  } catch (_) { /* Google script blocked — the original button (redirect flow) stays visible */ }
+}
+
 /* ───────── status + free-time accounting ───────── */
+const inTrial = () => !!(st && st.trialUntil && st.trialUntil > Date.now());
+let trialTimer = 0;
 function applyStatus(s) {
   st = s;
-  remaining = s.lifetime ? Infinity : Math.max(0, s.limit - s.used - pending);
-  localSet({ day: day(), user: me && me.id, used: s.used, limit: s.limit, lifetime: s.lifetime });
+  remaining = s.lifetime || inTrial() ? Infinity : Math.max(0, s.limit - s.used - pending);
+  localSet({ day: day(), user: me && me.id, used: s.used, limit: s.limit, lifetime: s.lifetime, trialUntil: s.trialUntil ? +s.trialUntil : 0 });
+  clearTimeout(trialTimer);
+  if (inTrial()) trialTimer = setTimeout(refreshStatus, Math.min(s.trialUntil - Date.now() + 2000, 2 ** 31 - 1));
   renderPill(); renderAccount();
   if (!s.lifetime && remaining <= 0) lockNow();
 }
@@ -95,7 +117,7 @@ async function refreshStatus() {
   catch (e) {
     // offline fallback: last known numbers for today (never resets the counter)
     const l = localGet();
-    if (l.user === (me && me.id) && l.day === day()) applyStatus({ lifetime: l.lifetime, used: l.used, limit: l.limit, resetsAt: nextMidnight() });
+    if (l.user === (me && me.id) && l.day === day()) applyStatus({ lifetime: l.lifetime, used: l.used, limit: l.limit, resetsAt: nextMidnight(), trialUntil: l.trialUntil ? new Date(l.trialUntil) : null });
     else applyStatus({ lifetime: !!(l.user === (me && me.id) && l.lifetime), used: 0, limit: cfg.freeSecondsPerDay || 240, resetsAt: nextMidnight() });
   }
 }
@@ -111,7 +133,7 @@ async function flush(force) {
 setInterval(() => {
   if (!me || !st || st.lifetime) return;
   if (VIZ.isActive() && !document.hidden) {
-    pending++; remaining = Math.max(0, remaining - 1); renderPill();
+    pending++; if (remaining !== Infinity) remaining = Math.max(0, remaining - 1); renderPill();
     if (remaining <= 0) { lockNow(); flush(true); return; }
   }
   if (pending >= 15 || (pending && Date.now() - lastFlush > 15000)) flush();
@@ -122,7 +144,9 @@ function fmt(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ":"
 function renderPill() {
   const p = $("freePill");
   if (!me || !st || st.lifetime) { p.style.display = "none"; return; }
-  p.style.display = ""; p.textContent = remaining > 0 ? `Free · ${fmt(remaining)} left today` : "Free time used up";
+  p.style.display = "";
+  if (inTrial()) { const h = (st.trialUntil - Date.now()) / 3600e3; p.textContent = `Free trial · ${h >= 1 ? Math.floor(h) + "h" : Math.max(1, Math.ceil(h * 60)) + "m"} left`; p.classList.remove("low"); return; }
+  p.textContent = remaining > 0 ? `Free · ${fmt(remaining)} left today` : "Free time used up";
   p.classList.toggle("low", remaining <= 30);
 }
 
@@ -259,7 +283,7 @@ function renderAccount() {
   if (!me) return;
   $("acctAvatar").textContent = (me.email || "?")[0].toUpperCase();
   $("acctEmail").textContent = me.email;
-  $("acctPlan").textContent = st && st.lifetime ? "Lifetime — unlimited" : payState && payState.status === "pending" ? "Payment under review" : `Free — ${Math.round((st ? st.limit : 240) / 60)} min per day`;
+  $("acctPlan").textContent = st && st.lifetime ? "Lifetime — unlimited" : inTrial() ? "Free trial — unlimited for 24 hours" : payState && payState.status === "pending" ? "Payment under review" : `Free — ${Math.round((st ? st.limit : 240) / 60)} min per day`;
   const ad = $("acctAdmin"); if (ad) ad.style.display = isAdmin ? "" : "none";
   $("acctBuy").style.display = st && !st.lifetime ? "" : "none";
   $("acctBuy").textContent = payState && payState.status === "pending" ? "Payment under review" : `Unlock forever · ${priceLabel}`;
@@ -304,6 +328,7 @@ async function boot() {
   try { be = await createBackend(cfg); }
   catch (e) { showAuth("signin"); authMsg("Can't reach the account server. Check your connection and reload."); return; }
   $("demoNote").style.display = be.mode === "demo" ? "" : "none";
+  setupGoogleButton();
   be.price && be.price().then((p) => { if (p) { priceLabel = p; renderAccount(); } }).catch(() => {});
   be.onChange(async (ev, user) => {
     if (ev === "PASSWORD_RECOVERY") { showAuth("newpw"); return; }
