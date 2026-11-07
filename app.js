@@ -16,7 +16,7 @@ const brand = $("brand"); if (brand) brand.textContent = cfg.name;
 /* ───────── state ───────── */
 let be = null, me = null, st = null;          // backend, user, server status
 let remaining = 0, pending = 0, lastFlush = 0, flushing = false;
-let priceLabel = cfg.priceLabel || "";
+let priceLabel = cfg.priceLabel || "", isAdmin = false;
 const LS = "wavelume_local_v1";
 const localGet = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch (_) { return {}; } };
 const localSet = (o) => { try { localStorage.setItem(LS, JSON.stringify({ ...localGet(), ...o })); } catch (_) {} };
@@ -133,10 +133,13 @@ function showPaywall() {
   $("pwReset").textContent = `Your free minutes come back in ${h}h ${m}m.`;
   $("pwBuy").textContent = `Unlock forever · ${priceLabel}`;
   $("pwMsg").textContent = ""; $("pwMsg").className = "msg";
+  if (payState && payState.status === "pending") { $("pwBuy").textContent = "Payment under review — view details"; $("pwMsg").textContent = "We've got your payment details and will unlock you soon."; $("pwMsg").className = "msg ok"; }
+  if (payState && payState.status === "rejected") { $("pwMsg").textContent = "We couldn't verify your last payment. Try again or contact " + (cfg.supportEmail || "support") + "."; $("pwMsg").className = "msg err"; }
   $("paywall").classList.add("open"); document.body.classList.add("locked");
 }
 function hidePaywall() { $("paywall").classList.remove("open"); document.body.classList.remove("locked"); }
 async function buy() {
+  if (cfg.upi) { openUpi(); return; }
   $("pwBuy").disabled = true; $("pwMsg").textContent = ""; $("pwMsg").className = "msg";
   try {
     const ok = await be.checkout({ confirm: confirmDialog });
@@ -148,6 +151,96 @@ $("pwBuy").onclick = buy; $("acctBuy").onclick = () => { $("acctMenu").classList
 $("pwRestore").onclick = $("acctRestore").onclick = async () => { await refreshStatus(); if (st.lifetime) { hidePaywall(); VIZ.toast("Purchase restored", "Unlimited visuals unlocked"); } else { $("pwMsg").textContent = "No purchase found on this account yet."; $("pwMsg").className = "msg err"; VIZ.toast("No purchase found on this account", ""); } };
 $("pwSignOut").onclick = $("acctSignOut").onclick = async () => { $("acctMenu").classList.remove("open"); await flush(true); await be.signOut(); };
 $("pwClose").onclick = () => hidePaywall(); // free users can still look around, but nothing plays
+
+/* ───────── manual UPI payments ───────── */
+const refCode = (u) => !u ? "" : /^[0-9a-f-]{36}$/i.test(u.id) ? u.id.replace(/-/g, "").slice(0, 6).toUpperCase()
+  : [...(u.email || "")].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).toUpperCase().padStart(6, "0").slice(0, 6);
+let payState = null, payPoll = 0;
+const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+function upiLink() {
+  const u = cfg.upi, e = encodeURIComponent;
+  return `upi://pay?pa=${e(u.id).replace(/%40/g, "@")}&pn=${e(u.name)}&am=${Number(u.amount).toFixed(2)}&cu=INR&tn=${e("Wavelume " + refCode(me))}`;
+}
+const QR_SRC = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js", QR_SRI = "sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k";
+function loadScript(src, sri) { return new Promise((res, rej) => { if (window.qrcode) return res(); const s = document.createElement("script"); s.src = src; if (sri) { s.integrity = sri; s.crossOrigin = "anonymous"; } s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+function buildUpi() {
+  if ($("upi")) return;
+  const st = document.createElement("style");
+  st.textContent = `#upi .qr{width:200px;height:200px;margin:4px auto 10px;background:#fff;border-radius:14px;padding:10px;box-sizing:content-box}#upi .qr svg{width:100%;height:100%;display:block}
+  #upi .steps{text-align:left;font-size:13px;color:#cfd6e0;margin:0 0 10px;padding-left:20px}#upi .steps li{margin:4px 0}
+  #upi .idrow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 6px;font-size:14px}#upi code{background:rgba(255,255,255,.08);padding:4px 8px;border-radius:7px;font-size:13px}
+  #upi .ref{font-size:13px;color:#cfd6e0;margin-bottom:10px}#upi .ref b{color:#fff;letter-spacing:.08em}
+  #upi .mini{background:none;border:1px solid rgba(255,255,255,.2);color:#e8ecf2;border-radius:7px;padding:3px 9px;font:inherit;font-size:12px;cursor:pointer}
+  #upi .payapp{display:none;margin:2px 0 12px}#upi.phone .payapp{display:flex}#upi.phone .qrwrap{display:none}#upi.phone .qrhint{display:block}
+  #upi .qrhint{display:none;font-size:12px;color:#9aa3b2;margin:-4px 0 10px}#upi .qrhint button{color:var(--acc);background:none;border:0;font:inherit;cursor:pointer;text-decoration:underline}
+  #upi .done{display:none}#upi.sent .form{display:none}#upi.sent .done{display:block}#upi .done .tick{font-size:42px;line-height:1;margin:6px 0 8px}`;
+  document.head.appendChild(st);
+  const ov = document.createElement("div");
+  ov.id = "upi"; ov.className = "ov";
+  ov.innerHTML = `<div class="panel">
+    <button class="x" type="button" id="upiX" aria-label="Close">×</button>
+    <div class="logo">${cfg.name}</div>
+    <div class="form">
+      <h2>Unlock forever · ${cfg.priceLabel}</h2>
+      <p class="sub" style="margin-bottom:10px">One-time UPI payment. No subscription.</p>
+      <a class="big wide payapp" id="upiApp" href="#">Pay ${cfg.priceLabel} with a UPI app</a>
+      <div class="qrwrap"><div class="qr" id="upiQr"></div></div>
+      <div class="qrhint">On a computer? <button type="button" id="upiShowQr">Show QR code</button></div>
+      <div class="idrow">UPI ID <code id="upiId"></code><button class="mini" type="button" id="upiCopy">Copy</button></div>
+      <div class="ref">Your code: <b id="upiRef"></b> <span style="color:#9aa3b2">(added to the payment note)</span></div>
+      <ol class="steps"><li>Pay <b>${cfg.priceLabel}</b> with GPay, PhonePe, Paytm or any UPI app.</li><li>Copy the <b>UPI transaction ID</b> (12 digits, also called UTR) from the payment receipt.</li><li>Paste it below and submit.</li></ol>
+      <input id="upiUtr" inputmode="numeric" autocomplete="off" placeholder="UPI transaction ID (e.g. 412345678901)">
+      <button class="big wide" type="button" id="upiSubmit">I've paid — submit</button>
+      <div class="msg" id="upiMsg" role="status"></div>
+    </div>
+    <div class="done">
+      <div class="tick">✓</div><h2>Payment submitted</h2>
+      <p class="sub" id="upiDoneText">We'll check it and unlock your account, usually within a few hours. This page updates by itself — you can close it.</p>
+      <button class="big wide" type="button" id="upiDoneOk">OK</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  $("upiX").onclick = $("upiDoneOk").onclick = () => ov.classList.remove("open");
+  $("upiShowQr").onclick = () => ov.classList.remove("phone");
+  $("upiCopy").onclick = async () => { try { await navigator.clipboard.writeText(cfg.upi.id); $("upiCopy").textContent = "Copied"; setTimeout(() => ($("upiCopy").textContent = "Copy"), 1500); } catch (_) {} };
+  $("upiSubmit").onclick = submitUtr;
+  $("upiUtr").addEventListener("keydown", (e) => { if (e.key === "Enter") submitUtr(); });
+}
+async function openUpi() {
+  buildUpi();
+  const ov = $("upi");
+  ov.classList.toggle("phone", isPhone);
+  ov.classList.toggle("sent", !!(payState && payState.status === "pending"));
+  $("upiId").textContent = cfg.upi.id; $("upiRef").textContent = refCode(me);
+  $("upiApp").href = upiLink(); $("upiMsg").textContent = ""; $("upiMsg").className = "msg";
+  hidePaywall(); ov.classList.add("open");
+  try { await loadScript(QR_SRC, QR_SRI).catch(() => loadScript("qrcode.js")); const q = window.qrcode(0, "M"); q.addData(upiLink()); q.make(); $("upiQr").innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); }
+  catch (_) { $("upiQr").textContent = "QR unavailable — use the UPI ID below"; }
+}
+async function submitUtr() {
+  const utr = $("upiUtr").value.trim();
+  if (!/^[0-9A-Za-z\s-]{10,26}$/.test(utr)) { $("upiMsg").textContent = "Paste the UPI transaction ID from your payment receipt — usually 12 digits."; $("upiMsg").className = "msg err"; return; }
+  $("upiSubmit").disabled = true;
+  try { payState = await be.submitPayment(utr); $("upi").classList.add("sent"); startPayPoll(); renderAccount(); }
+  catch (e) { $("upiMsg").textContent = niceErr(e); $("upiMsg").className = "msg err"; }
+  finally { $("upiSubmit").disabled = false; }
+}
+function startPayPoll() {
+  clearInterval(payPoll);
+  payPoll = setInterval(async () => {
+    if (!me) return clearInterval(payPoll);
+    await refreshStatus();
+    if (st && st.lifetime) { clearInterval(payPoll); payState = { status: "approved" }; $("upi") && $("upi").classList.remove("open"); hidePaywall(); renderAccount(); VIZ.toast(`Payment approved — ${cfg.name} is unlocked forever`, "Thank you for supporting it!"); return; }
+    const ps = await be.paymentStatus().catch(() => null);
+    if (ps && ps.status === "rejected") { clearInterval(payPoll); payState = ps; renderAccount(); VIZ.toast("We couldn't verify your payment", cfg.supportEmail ? "Contact " + cfg.supportEmail : ""); }
+  }, 45000);
+}
+async function checkPayment() {
+  if (!cfg.upi || !me || (st && st.lifetime) || !be.paymentStatus) return;
+  payState = await be.paymentStatus().catch(() => null);
+  if (payState && payState.status === "pending") startPayPoll();
+  renderAccount();
+}
 
 /* ───────── account menu ───────── */
 $("acctDelete").onclick = async () => {
@@ -165,10 +258,12 @@ function renderAccount() {
   if (!me) return;
   $("acctAvatar").textContent = (me.email || "?")[0].toUpperCase();
   $("acctEmail").textContent = me.email;
-  $("acctPlan").textContent = st && st.lifetime ? "Lifetime — unlimited" : `Free — ${Math.round((st ? st.limit : 240) / 60)} min per day`;
+  $("acctPlan").textContent = st && st.lifetime ? "Lifetime — unlimited" : payState && payState.status === "pending" ? "Payment under review" : `Free — ${Math.round((st ? st.limit : 240) / 60)} min per day`;
+  const ad = $("acctAdmin"); if (ad) ad.style.display = isAdmin ? "" : "none";
   $("acctBuy").style.display = st && !st.lifetime ? "" : "none";
-  $("acctBuy").textContent = `Unlock forever · ${priceLabel}`;
+  $("acctBuy").textContent = payState && payState.status === "pending" ? "Payment under review" : `Unlock forever · ${priceLabel}`;
 }
+{ const a = document.createElement("a"); a.id = "acctAdmin"; a.className = "mlink"; a.href = "admin.html"; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Admin — approve payments"; a.style.display = "none"; a.style.color = "var(--acc)"; $("acctMenu").insertBefore(a, $("acctBuy")); }
 $("acctAvatar").onclick = (e) => { e.stopPropagation(); $("acctMenu").classList.toggle("open"); };
 addEventListener("pointerdown", (e) => { if (!e.target.closest("#acct")) $("acctMenu").classList.remove("open"); });
 
@@ -200,6 +295,8 @@ async function afterSignIn(user) {
   me = user; hideAuth(); renderAccount();
   await refreshStatus();
   maybeIosHint();
+  checkPayment();
+  if (be.isAdmin) be.isAdmin().then((v) => { isAdmin = v; renderAccount(); }).catch(() => {});
   if (st && !st.lifetime && remaining > 0) VIZ.toast(`Signed in — ${fmt(remaining)} of free visuals left today`, "Unlock forever any time from your account menu");
 }
 async function boot() {
@@ -210,7 +307,7 @@ async function boot() {
   be.onChange(async (ev, user) => {
     if (ev === "PASSWORD_RECOVERY") { showAuth("newpw"); return; }
     if (user && (!me || me.id !== user.id)) await afterSignIn(user);
-    if (!user && me) { me = null; st = null; pending = 0; remaining = 0; VIZ.stopAll(); renderPill(); renderAccount(); hidePaywall(); showAuth("signin"); }
+    if (!user && me) { me = null; st = null; pending = 0; remaining = 0; payState = null; isAdmin = false; clearInterval(payPoll); VIZ.stopAll(); renderPill(); renderAccount(); hidePaywall(); showAuth("signin"); }
   });
   const u = await be.session();
   if (u) await afterSignIn(u); else showAuth("signup");
