@@ -55,6 +55,8 @@ async function supabaseBackend(cfg) {
     async isAdmin() { const { data, error } = await sb.rpc("is_admin"); return !error && !!data; },
     async adminList(status) { const { data, error } = await sb.rpc("admin_list_requests", { p_status: status }); if (error) throw error; return data || []; },
     async adminDecide(id, approve) { const { data, error } = await sb.rpc("admin_decide", { p_id: id, p_approve: approve }); if (error) throw error; return data; },
+    async adminStats() { const { data, error } = await sb.rpc("admin_stats"); if (error) throw error; return data; },
+    async adminUsers(filter) { const { data, error } = await sb.rpc("admin_list_users", { p_filter: filter || "all" }); if (error) throw error; return data || []; },
     async price() {
       if (cfg.upi) return cfg.priceLabel;
       const c = await fn("config");
@@ -151,6 +153,19 @@ async function demoBackend(cfg) {
     async paymentStatus() { const d = load(), r = (d.reqs || []).filter((x) => x.email === d.session).pop(); return r ? { status: r.status, utr: r.utr } : null; },
     async isAdmin() { return load().session === "akshaj001@gmail.com"; },
     async adminList(status) { const d = load(); return (d.reqs || []).filter((r) => !status || r.status === status).reverse(); },
+    async adminStats() {
+      const d = load(), users = Object.entries(d.users), today = utcDay(), reqs = d.reqs || [];
+      const ok = reqs.filter((r) => r.status === "approved");
+      const act = (pred) => new Set(Object.keys(d.usage).filter((k) => d.usage[k] > 0 && pred(k.split("|")[1])).map((k) => k.split("|")[0])).size;
+      return { registered: users.length, confirmed: users.length, paid: users.filter(([, u]) => u.lifetime).length, paid_upi: ok.length, revenue_paise: ok.reduce((a, r) => a + (r.amount || 0), 0),
+        active_today: act((day) => day === today), active_7d: act(() => true), new_today: users.length, new_7d: users.length, pending: reqs.filter((r) => r.status === "pending").length };
+    },
+    async adminUsers(filter) {
+      const d = load();
+      return Object.entries(d.users).filter(([, u]) => filter === "paid" ? u.lifetime : filter === "free" ? !u.lifetime : true)
+        .map(([email, u]) => ({ email, joined: null, last_sign_in: null, confirmed: true, lifetime: !!u.lifetime, lifetime_since: null,
+          minutes_total: Math.floor(Object.keys(d.usage).filter((k) => k.startsWith(email + "|")).reduce((a, k) => a + d.usage[k], 0) / 60), last_active: null }));
+    },
     async adminDecide(id, approve) {
       const d = load(), r = (d.reqs || []).find((x) => x.id === id); if (!r) throw err("request not found");
       r.status = approve ? "approved" : "rejected"; r.decided_at = new Date().toISOString();
