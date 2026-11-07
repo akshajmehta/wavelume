@@ -26,6 +26,12 @@
   #flipclock.glass{--fg:#fff;--ct:linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,.12));--cb:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.16));--hinge:rgba(255,255,255,.28);--shadow:0 calc(var(--h)*.04) calc(var(--h)*.16) rgba(0,0,0,.28);--edge:1px solid rgba(255,255,255,.32);--txs:0 calc(var(--h)*.02) calc(var(--h)*.08) rgba(0,0,0,.35)}
   .fd{position:relative;width:var(--w);height:var(--h);perspective:calc(var(--h)*5);font:700 calc(var(--h)*.74)/1 "Segoe UI","Helvetica Neue",system-ui,-apple-system,sans-serif;color:var(--fg);font-variant-numeric:tabular-nums;border-radius:var(--r);box-shadow:var(--shadow);text-shadow:var(--txs)}
   .fd>div{position:absolute;left:0;right:0;height:50%;overflow:hidden;background:var(--ct);backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  #flipclock.outline{--fg:transparent;--ct:none;--cb:none;--hinge:transparent;--shadow:none;--txs:none}
+  #flipclock.outline .fd{-webkit-text-stroke:max(1.5px,calc(var(--h)*.017)) rgba(255,255,255,.96);font-weight:800;filter:drop-shadow(0 0 calc(var(--h)*.03) rgba(0,0,0,.6))}
+  #flipclock.outline .fd>div{background:none}
+  #flipclock.outline .fd.pop span{animation:fcPop .38s ease-out}
+  @keyframes fcPop{from{opacity:0;transform:translateY(-7%)}to{opacity:1;transform:none}}
+  #flipclock.outline .fcSep i{background:none;border:max(1.5px,calc(var(--h)*.017)) solid rgba(255,255,255,.96);box-shadow:none}
   #flipclock.glass .fd>div{-webkit-backdrop-filter:blur(calc(var(--h)*.12)) saturate(180%);backdrop-filter:blur(calc(var(--h)*.12)) saturate(180%);border:var(--edge)}
   #flipclock.glass .fd .t,#flipclock.glass .fd .ft{border-bottom:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}
   #flipclock.glass .fd .b,#flipclock.glass .fd .fb{border-top:0}
@@ -92,7 +98,7 @@
     </div>
     <div data-pane="stopwatch"><div class="row" style="color:#9aa3b2;font-size:13px">Counts up from zero. Great for live study streams.</div></div>
     <div class="actions"><button class="go" id="tGo">Start</button><button id="tReset">Reset</button><button id="tHide">Hide clock</button></div>
-    <div class="sub"><span class="sizes">Style <button data-th="black">Black</button> <button data-th="white">White</button> <button data-th="glass">Glass</button></span></div>
+    <div class="sub"><span class="sizes">Style <button data-th="black">Black</button> <button data-th="white">White</button> <button data-th="glass">Glass</button> <button data-th="outline">Outline</button></span></div>
     <div class="sub"><span class="sizes">Size <button data-s="s">S</button> <button data-s="m">M</button> <button data-s="l">L</button></span>
       <label><input type="checkbox" id="tChime"> Chime</label><label id="tAutoL"><input type="checkbox" id="tAuto"> Auto-start next</label></div>`;
   document.body.appendChild(panel);
@@ -122,7 +128,11 @@
     if (d.v === v) return;
     const old = d.v, q = (s) => d.el.querySelector(s + " span");
     d.v = v;
-    if (!animate) { ["t", "b", "ft", "fb"].forEach((c) => (q("." + c).textContent = v)); return; }
+    if (!animate || cfg.theme === "outline") {   // see-through digits fade in instead of flipping (no ghosting)
+      ["t", "b", "ft", "fb"].forEach((c) => (q("." + c).textContent = v));
+      if (animate) { d.el.classList.remove("pop"); void d.el.offsetWidth; d.el.classList.add("pop"); }
+      return;
+    }
     q(".t").textContent = v; q(".b").textContent = old; q(".ft").textContent = old; q(".fb").textContent = v;
     d.el.classList.remove("flip"); void d.el.offsetWidth; d.el.classList.add("flip");
     clearTimeout(d.t); d.t = setTimeout(() => { q(".b").textContent = v; q(".ft").textContent = v; d.el.classList.remove("flip"); }, 560);
