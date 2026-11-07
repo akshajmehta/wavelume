@@ -23,7 +23,7 @@ window.APP_CONFIG = {
   upi: { id: "akshaj.mehta@ptaxis", name: "Akshaj Mehta", amount: 99 },
 
   // Show "Continue with Google" (turn on Google in Supabase → Authentication → Providers first).
-  googleSignIn: false,
+  googleSignIn: true,
 
   // Shown on the paywall / account menu.
   supportEmail: "workwithdrakshaj@gmail.com",
