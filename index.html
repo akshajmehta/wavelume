@@ -291,7 +291,7 @@ async function startLive(kind){
   stopLive(true); P.pause();
   const src=actx.createMediaStreamSource(stream), g=actx.createGain(); g.gain.value=4;
   src.connect(g); g.connect(anaIn); // NOT connected to the speakers → no feedback howl
-  live={kind,stream,src,gain:g};
+  live={kind,stream,src,gain:g};everPlayed=true;
   stream.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{if(live&&live.stream===stream)stopLive();}));
   document.body.classList.add('loaded','islive');
   $('title').textContent=kind==='system'?'● Live — tab / system audio':'● Live — microphone';
@@ -309,7 +309,8 @@ function stopLive(silent){
 // auto-level: room audio through a mic is much quieter than a file, so normalise what the analysers see
 function levelLive(){
   if(!live)return; let s=0;for(let i=0;i<FFT;i+=4)s+=wave[i]*wave[i];const rms=Math.sqrt(s/(FFT/4));
-  if(rms<1e-5)return; const g=live.gain.gain.value, want=Math.max(1,Math.min(60,g*0.16/rms));
+  const g=live.gain.gain.value; if(rms<1e-5||rms/g<0.0012)return; // never amplify room silence
+  const want=Math.max(1,Math.min(60,g*0.16/rms));
   live.gain.gain.value=g+(want-g)*(want<g?0.08:0.015);
 }
 /* Player: normally streams through the <audio> element; if a browser hands the analyser silence
@@ -337,8 +338,8 @@ const P={useBuf:false,sticky:false,buf:null,src:null,bStart:0,bOff:0,bPlaying:fa
   }
 };
 const liveInput=()=>live;
-const lv={bass:0,mid:0,treb:0,vol:0,kick:0,beat:false,avgBass:0.2,lastBeat:0,energy:0};
-let demoT=0;
+const lv={bass:0,mid:0,treb:0,vol:0,kick:0,beat:false,avgBass:0.2,lastBeat:0,energy:0,presence:0.4,level:-100};
+let demoT=0, everPlayed=false;
 function readAudio(t){
   const live=actx && ((!P.paused && P.time>0) || !!liveInput());
   if(live){
@@ -352,8 +353,11 @@ function readAudio(t){
     analyser.getByteFrequencyData(freq);
     anL.getFloatTimeDomainData(waveL); anR.getFloatTimeDomainData(waveR);
     let d=0; for(let i=0;i<FFT;i+=16) d+=Math.abs(waveL[i]-waveR[i]); stereo=d>0.02;
+  } else if(everPlayed){
+    // nothing playing: real silence, so the visuals die down
+    wave.fill(0);waveL.fill(0);waveR.fill(0);freq.fill(0);
   } else {
-    // gentle synthetic signal so the screen is alive before a song is loaded
+    // faint synthetic signal so the landing screen isn't black before anything has played
     demoT+=1/60;
     const b=Math.exp(-(demoT%0.5)*14); // 120 BPM pulse
     for(let i=0;i<FFT;i++){
@@ -374,6 +378,14 @@ function readAudio(t){
   detectBeat(t);
   analyseTone(live);
   lv.kick*=0.86;
+  // presence = how loud the music really is (measured before mic auto-levelling); rises fast, fades slowly
+  let ss=0;for(let i=0;i<FFT;i+=4)ss+=wave[i]*wave[i];let rms=Math.sqrt(ss/(FFT/4));
+  if(liveInput())rms/=Math.max(1,liveInput().gain.gain.value);
+  const db=20*Math.log10(rms+1e-9); lv.level=db;
+  let pt=Math.min(1,Math.max(0,(db+58)/24)); pt=pt*pt*(3-2*pt);
+  if(!live)pt=everPlayed?0:0.4;
+  const dtp=Math.min(0.1,Math.max(0.001,t-(lv.pt||t-0.016)));lv.pt=t; // frame-rate independent: ~0.2 s up, ~3 s down
+  lv.presence+=(pt-lv.presence)*(1-Math.exp(-dtp/(pt>lv.presence?0.08:1.3)));
 }
 
 /* ---- onset detection (spectral flux) + tempo grid ---- */
@@ -387,7 +399,7 @@ function detectBeat(t){
   for(const f of fluxHist)s+=(f-m)*(f-m);s=Math.sqrt(s/Math.max(1,fluxHist.length));
   fluxHist.push(flux);if(fluxHist.length>60)fluxHist.shift();
   lv.beat=false;lv.onset=false;
-  const onset=flux>m+1.35*s && flux>m*1.3+0.25 && t-bt.lastOnset>0.18;
+  const onset=lv.presence>0.18 && flux>m+1.35*s && flux>m*1.3+0.25 && t-bt.lastOnset>0.18;
   if(onset){
     lv.onset=true;lv.kick=Math.max(lv.kick,Math.min(1,0.5+(flux-m)/(4*s+1e-3)));
     bt.lastOnset=t;voteTempo(t);
@@ -727,7 +739,7 @@ function drawBW(id,t,alpha){
       cx.fillStyle=`hsl(${H0+i/n*70},90%,80%)`;cx.fillRect(i*bw2+1,h-peaks[i]-3*DPR,bw2-2,2*DPR);}}
   else if(id==='ocean'){const g=cx.createLinearGradient(0,h*.2,0,h);g.addColorStop(0,`hsl(${H0+30},95%,62%)`);g.addColorStop(1,`hsl(${H0},90%,45%)`);
     cx.fillStyle=g;cx.beginPath();cx.moveTo(0,h);
-    const n=300;for(let i=0;i<=n;i++){const idx=Math.floor(Math.pow(i/n,1.35)*600)+1;const v=freq[idx]/255;cx.lineTo(i/n*w,h-(v*.72+.04)*h-(Math.random()*.012*h));}
+    const n=300;for(let i=0;i<=n;i++){const idx=Math.floor(Math.pow(i/n,1.35)*600)+1;const v=freq[idx]/255;cx.lineTo(i/n*w,h-(v*.72+.04*lv.presence)*h-(Math.random()*.012*h*lv.presence));}
     cx.lineTo(w,h);cx.closePath();cx.fill();}
   else if(id==='scope2'){cx.strokeStyle=`hsl(${H0+(tone.centroid-.3)*120},60%,58%)`;cx.lineWidth=1.3*DPR;cx.beginPath();
     const n=512;for(let i=0;i<n;i++){const y=h/2+wave[i*3]*h*.38;i?cx.lineTo(i/n*w,y):cx.moveTo(0,y);}cx.stroke();}
@@ -772,7 +784,7 @@ function frame(now){
   if(!isAlch()||t<layerFadeEnd) renderBW(t);
 }
 function renderGL(t){
-  if(mode==='random'&&$('auto').checked&&!target){
+  if(mode==='random'&&$('auto').checked&&!target&&lv.presence>0.15){ // no scene changes during silence
     const rhythmic=t-bt.lastOnset<3;
     const held=bt.count-sceneStartBeat,el=t-sceneStartT,minHold=Math.max(4,sceneBeats*bt.period*0.9);
     if((rhythmic&&lv.beat&&held>=sceneBeats&&el>=minHold&&bt.count%4===0)||(rhythmic&&el>Math.max(16,minHold+5))||(!rhythmic&&el>9))randomPreset();
@@ -791,15 +803,16 @@ function renderGL(t){
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(u.uPrev,0);gl.uniform1i(u.uInject,1);
   gl.uniform2f(u.uRes,bw,bh);gl.uniform2f(u.uDrift,cur.dx*(1+lv.mid),cur.dy*(1+lv.mid));
   setU1(u,'uAspect',bw/bh);setU1(u,'uTime',t);
-  setU1(u,'uZoom',cur.zoom-lv.kick*.02-lv.bass*.006-B*.008);
-  setU1(u,'uRot',cur.rot*rotDir*(0.6+lv.mid*1.5)+lv.kick*.006*rotDir);
-  setU1(u,'uSwirl',(cur.swirl*(0.6+lv.mid*1.2)+B*.9)*rotDir);
-  setU1(u,'uWarp',cur.warp*(1+lv.treb*2.5)+B*.006);setU1(u,'uWarpF',cur.warpF);
+  const PR=lv.presence, mo=0.12+0.88*PR; // light and motion follow how loud the music is
+  setU1(u,'uZoom',1-(1-(cur.zoom-lv.kick*.02-lv.bass*.006))*mo-B*.008);
+  setU1(u,'uRot',cur.rot*rotDir*(0.6+lv.mid*1.5)*mo+lv.kick*.006*rotDir);
+  setU1(u,'uSwirl',(cur.swirl*(0.6+lv.mid*1.2)*mo+B*.9)*rotDir);
+  setU1(u,'uWarp',cur.warp*(1+lv.treb*2.5)*mo+B*.006);setU1(u,'uWarpF',cur.warpF);
   setU1(u,'uRipple',cur.ripple*(1+lv.bass*2));setU1(u,'uRipF',cur.ripF);
   setU1(u,'uDecay',Math.min(.99,cur.decay+B*.012));setU1(u,'uBlur',Math.min(.95,cur.blur+B*.25));
   setU1(u,'uMirX',cur.mirX);setU1(u,'uMirXY',cur.mirXY);setU1(u,'uKalAmt',cur.kalAmt);
   setU1(u,'uKalA',kalA);setU1(u,'uKalB',kalB);setU1(u,'uKalMix',kalMix);
-  setU1(u,'uBlockAmt',cur.blockAmt);setU1(u,'uBlockN',Math.max(4,cur.blockN));setU1(u,'uInjGain',cur.injGain);
+  setU1(u,'uBlockAmt',cur.blockAmt);setU1(u,'uBlockN',Math.max(4,cur.blockN));setU1(u,'uInjGain',cur.injGain*Math.min(1,PR*1.15));
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   cursor=1-cursor;
   // display: palette hue steered by the song's tonal centre; lows and highs get their own offsets
@@ -855,7 +868,7 @@ function addFiles(files){
 function playIdx(i){
   if(!list.length)return;
   if(!VIZ.canPlay()){VIZ.onBlocked();return;}
-  stopLive(true);idx=(i+list.length)%list.length;
+  stopLive(true);everPlayed=true;idx=(i+list.length)%list.length;
   if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(list[idx]);
   initAudio();P.reset();
   if(P.sticky){audio.removeAttribute('src');P.decode(list[idx],0,true);}
@@ -951,7 +964,7 @@ document.addEventListener('fullscreenchange',onFSChange);
 document.addEventListener('webkitfullscreenchange',onFSChange);
 
 /* go */
-if(gl){viz.value='random';mode='random';randomPreset();}else{viz.value='bars';setMode('bars');}window.__dbg=()=>({bpm:bt.bpm,period:bt.period,beats:bt.count,hue:tone.hue,clarity:tone.clarity,centroid:tone.centroid,preset:PRESETS[presetIdx].name,morphing:!!target,kick:lv.kick});
+if(gl){viz.value='random';mode='random';randomPreset();}else{viz.value='bars';setMode('bars');}window.__dbg=()=>({bpm:bt.bpm,period:bt.period,beats:bt.count,hue:tone.hue,clarity:tone.clarity,centroid:tone.centroid,preset:PRESETS[presetIdx].name,morphing:!!target,kick:lv.kick,presence:lv.presence,level:lv.level});
 requestAnimationFrame(frame);
 window.VIZ=Object.assign(window.VIZ||{},{
   isActive:()=>!!live||(!P.paused&&P.time>0),
@@ -962,6 +975,7 @@ window.VIZ=Object.assign(window.VIZ||{},{
 window.__viz={setMode,applyPreset,PRESETS,P:()=>({useBuf:P.useBuf,paused:P.paused,time:P.time,dur:P.duration}),fmt:()=>fmt&&{type:fmt.type,gl2:isGL2},quality:()=>quality};
 })();
 </script>
+<script src="timer.js"></script>
 <script src="config.js"></script>
 <script type="module" src="app.js"></script>
 </body>
