@@ -14,6 +14,8 @@ window.APP_CONFIG = {
   // Free seconds per day. In live mode the server's value (supabase/schema.sql) is what counts;
   // this number is only used in demo mode.
   freeSecondsPerDay: 240,
+  // New accounts get this many hours of unlimited use first (must match free_trial_hours() in trial.sql).
+  trialHours: 24,
 
   // Shown on the unlock button until the server reports the real price.
   priceLabel: "₹99",
@@ -24,6 +26,8 @@ window.APP_CONFIG = {
 
   // Show "Continue with Google" (turn on Google in Supabase → Authentication → Providers first).
   googleSignIn: true,
+  // Google OAuth client ID (public, not a secret) — enables Google's own sign-in button.
+  googleClientId: "715869191125-emj8mv5n111c90h8afim1s1bbm995cqn.apps.googleusercontent.com",
 
   // Shown on the paywall / account menu.
   supportEmail: "workwithdrakshaj@gmail.com",
