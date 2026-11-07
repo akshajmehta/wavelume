@@ -59,6 +59,7 @@ const niceErr = (e) => {
   if (/Email not confirmed/i.test(m)) return "Please confirm your email first — check your inbox.";
   if (/already registered/i.test(m)) return "An account with this email already exists. Sign in instead.";
   if (/Password should be/i.test(m)) return "Password must be at least 6 characters.";
+  if (/rate limit|too many/i.test(m)) return "Too many attempts right now — please wait a few minutes and try again.";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "Can't reach the server. Check your internet connection.";
   return m;
 };
