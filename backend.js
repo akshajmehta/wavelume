@@ -6,6 +6,7 @@ const norm = (d) => ({
   used: d.used | 0,
   limit: d.limit | 0,
   resetsAt: new Date(d.resets_at || d.resetsAt),
+  trialUntil: d.trial_until || d.trialUntil ? new Date(d.trial_until || d.trialUntil) : null,
 });
 const utcDay = () => new Date().toISOString().slice(0, 10);
 const nextUtcMidnight = () => { const d = new Date(); d.setUTCHours(24, 0, 0, 0); return d; };
@@ -44,6 +45,7 @@ async function supabaseBackend(cfg) {
     },
     async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
     async google() { const { error } = await sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: here } }); if (error) throw error; },
+    async googleIdToken(token, nonce) { const { error } = await sb.auth.signInWithIdToken({ provider: "google", token, nonce }); if (error) throw error; },
     async resetPassword(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: here }); if (error) throw error; },
     async setNewPassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw error; },
     async signOut() { await sb.auth.signOut(); },
@@ -107,7 +109,8 @@ async function demoBackend(cfg) {
   const emit = (ev) => { const d = load(); listeners.forEach((cb) => cb(ev, d.session ? { id: d.session, email: d.session } : null)); };
   const status = () => {
     const d = load(), u = d.users[d.session] || {};
-    return { lifetime: !!u.lifetime, used: d.usage[d.session + "|" + utcDay()] | 0, limit: cfg.freeSecondsPerDay, resetsAt: nextUtcMidnight() };
+    const tu = u.created && cfg.trialHours ? u.created + cfg.trialHours * 3600e3 : 0;
+    return { lifetime: !!u.lifetime, used: d.usage[d.session + "|" + utcDay()] | 0, limit: cfg.freeSecondsPerDay, resetsAt: nextUtcMidnight(), trialUntil: tu > Date.now() ? new Date(tu) : null };
   };
   const err = (m) => Object.assign(new Error(m), { demo: true });
   const refOf = (email) => [...email].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).toUpperCase().padStart(6, "0").slice(0, 6);
@@ -118,7 +121,7 @@ async function demoBackend(cfg) {
     async signUp(email, password) {
       const d = load(); email = email.trim().toLowerCase();
       if (d.users[email]) throw err("An account with this email already exists. Sign in instead.");
-      d.users[email] = { pw: await hash(password), lifetime: false }; d.session = email; save(d); emit("SIGNED_IN");
+      d.users[email] = { pw: await hash(password), lifetime: false, created: Date.now() }; d.session = email; save(d); emit("SIGNED_IN");
       return { needsConfirm: false };
     },
     async signIn(email, password) {
