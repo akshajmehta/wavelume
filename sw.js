@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump VERSION whenever you deploy changes.
-const VERSION = "wavelume-v3";
-const SHELL = ["./", "index.html", "legal.html", "config.js", "app.js", "backend.js", "manifest.webmanifest",
+const VERSION = "wavelume-v4";
+const SHELL = ["./", "index.html", "legal.html", "timer.js", "config.js", "app.js", "backend.js", "manifest.webmanifest",
                "icon-192.png", "icon-512.png", "apple-touch-icon.png", "favicon-64.png"];
 
 self.addEventListener("install", (e) => {
