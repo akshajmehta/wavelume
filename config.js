@@ -16,7 +16,11 @@ window.APP_CONFIG = {
   freeSecondsPerDay: 240,
 
   // Shown on the unlock button until the server reports the real price.
-  priceLabel: "₹499",
+  priceLabel: "₹99",
+
+  // Manual UPI payments: buyers pay this UPI ID, then you approve them on admin.html.
+  // Remove this block to use the Razorpay / test checkout instead.
+  upi: { id: "akshaj.mehta@ptaxis", name: "Akshaj Mehta", amount: 99 },
 
   // Show "Continue with Google" (turn on Google in Supabase → Authentication → Providers first).
   googleSignIn: false,
