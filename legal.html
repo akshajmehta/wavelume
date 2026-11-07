@@ -6,7 +6,6 @@
 <title>Wavelume — Privacy, Terms &amp; Refunds</title>
 <link rel="icon" href="favicon-64.png">
 <!--
-  TEMPLATE — review before launch. Not legal advice. Things to check are marked [CHECK].
   The app name and contact email are filled in automatically from config.js.
 -->
 <style>
@@ -29,7 +28,7 @@
   <ul>
     <li><b>Your account:</b> your email address and a securely hashed password, or your Google account email if you sign in with Google.</li>
     <li><b>Usage time:</b> how many seconds of visuals you used each day. We need this for the daily free allowance.</li>
-    <li><b>Purchases:</b> whether your account has the lifetime unlock, plus the payment reference, amount and currency. We never see or store your card or bank details. The payment provider handles them.</li>
+    <li><b>Purchases:</b> whether your account has the lifetime unlock, and the UPI transaction ID (UTR) and amount you submit when you pay. You pay from your own UPI app, so we never see your bank or card details.</li>
   </ul>
   <p><b>What we never collect</b></p>
   <ul>
@@ -37,35 +36,35 @@
     <li><b>Your song files</b> are played on your device and are never uploaded.</li>
     <li>We don't use advertising trackers and we don't sell your data.</li>
   </ul>
-  <p><b>Services we use:</b> Supabase (account storage and sign-in) and Razorpay (payments) [CHECK: list Google Play / Apple if you sell through their stores]. They process data only to provide those services.</p>
-  <p><b>How long we keep it:</b> until you delete your account. Payment records may be kept longer where tax law requires it [CHECK].</p>
+  <p><b>Services we use:</b> Supabase (account storage and sign-in), GitHub Pages (hosting the website) and Google (only if you choose "Continue with Google"). They process data only to provide those services. Payments go directly by UPI; no payment company handles your data.</p>
+  <p><b>How long we keep it:</b> until you delete your account. Payment records may be kept longer where the law requires it.</p>
   <p><b>Your rights:</b> you can see the email we hold, change your password, or delete your account and its data at any time (see below). Questions: use the contact address at the bottom.</p>
-  <p><b>Children:</b> the service isn't directed at children under 13 [CHECK: 18 if you prefer], and we don't knowingly collect their data.</p>
+  <p><b>Children:</b> the service isn't directed at children under 13, and we don't knowingly collect their data.</p>
 
   <h2 id="terms">Terms of Use</h2>
   <ul>
     <li><b>Free plan:</b> each account gets a number of free minutes of visuals per day (currently 4). The allowance resets daily at 00:00 UTC.</li>
     <li><b>Lifetime unlock:</b> a one-time payment that removes the daily limit on that account for as long as the service runs. It's tied to your account. It isn't transferable and isn't a subscription, so there are no renewals.</li>
+    <li><b>How payment works:</b> you pay by UPI and submit the transaction ID in the app. We check the payment manually and unlock your account, usually within a few hours. Submitting a transaction ID for a payment you didn't make is misuse, and the account may be closed.</li>
     <li><b>Your content:</b> only use audio you have the right to play. You're responsible for the music you open or capture.</li>
     <li><b>Fair use:</b> don't attempt to bypass the free limit, abuse the service, or resell access.</li>
     <li><b>Health notice:</b> the visuals contain flashing lights and fast patterns. If you have photosensitive epilepsy or have had seizures, don't use the app without medical advice. Stop immediately if you feel unwell.</li>
     <li><b>No warranty:</b> the service is provided "as is". We may change or improve features over time.</li>
-    <li><b>Governing law:</b> India [CHECK].</li>
+    <li><b>Governing law:</b> these terms are governed by the laws of India.</li>
   </ul>
 
   <h2 id="refund">Refund &amp; Cancellation Policy</h2>
   <ul>
-    <li>Not happy with the lifetime unlock? Email us within <b>7 days</b> of purchase [CHECK] for a full refund. No questions asked.</li>
-    <li>Refunds go back to the original payment method, usually within 5–7 working days of approval.</li>
+    <li>Not happy with the lifetime unlock? Email us within <b>7 days</b> of purchase, with your account email and UPI transaction ID, for a full refund. No questions asked.</li>
+    <li>Refunds are sent back by UPI to the account you paid from, usually within 5–7 working days. Your account then returns to the free plan.</li>
     <li>There's nothing to cancel: the unlock is a one-time payment, not a subscription.</li>
-    <li>Purchases made through an app store (Google Play / Apple) are refunded under that store's own refund process.</li>
   </ul>
 
   <h2 id="delete">Deleting your account</h2>
-  <p>In the app, open the account menu (your initial, top-right) → <b>Delete account</b>. This permanently removes your account, usage history and purchase records from our database [CHECK: tax records]. You can also email us to request deletion.</p>
+  <p>In the app, open the account menu (your initial, top-right) → <b>Delete account</b>. This permanently removes your account, usage history and purchase records from our database. You can also email us to request deletion.</p>
 
   <h2 id="contact">Contact</h2>
-  <p>Email: <a id="mail" href="mailto:workwithdrakshaj@gmail.com">workwithdrakshaj@gmail.com</a> [CHECK: add a postal address or city if your payment provider requires one]</p>
+  <p>Email: <a id="mail" href="mailto:workwithdrakshaj@gmail.com">workwithdrakshaj@gmail.com</a></p>
 </main>
 <script src="config.js"></script>
 <script>
