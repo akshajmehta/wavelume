@@ -22,6 +22,11 @@ code{background:rgba(255,255,255,.07);padding:2px 6px;border-radius:6px;font-siz
 .tip{font-size:13px;color:#cfd6e0;background:rgba(124,196,255,.08);border:1px solid rgba(124,196,255,.2);border-radius:12px;padding:10px 12px;margin-bottom:14px}
 form{display:grid;gap:8px;max-width:340px;margin:20px auto}input{background:#0f1218;border:1px solid var(--line);color:#fff;border-radius:10px;padding:11px 12px;font:inherit}
 a{color:var(--acc)}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}.stat b{display:block;font-size:26px;line-height:1.15;color:#fff}.stat span{font-size:12.5px;color:var(--mut)}
+.stat.hi b{color:#8fe3a8}.filters{display:flex;gap:6px;margin:0 0 10px}.filters button{background:none;border:1px solid var(--line);color:#cfd6e0;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}.filters button.on{border-color:var(--acc);color:var(--acc)}
+.urow{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}.urow:last-child{border-bottom:0}.ulist{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.umeta{font-size:12.5px;color:var(--mut)}.tag.paid{background:rgba(47,191,113,.18);color:#8fe3a8}
 </style></head>
 <body><div class="wrap">
   <h1>Payments admin</h1>
@@ -35,25 +40,50 @@ const cfg = window.APP_CONFIG || {}, $ = (id) => document.getElementById(id), ma
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const when = (t) => { if (!t) return ""; const d = new Date(t); return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const rupees = (p) => "₹" + (Number(p || 0) / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-let be, me, tab = "pending", timer = 0, armed = null, flash = "";
+let be, me, tab = "pending", timer = 0, armed = null, flash = "", ufilter = "all";
 
 function signInForm(msg) {
   $("who").textContent = "Sign in with your admin account.";
   main.innerHTML = `<form id="f"><input id="em" type="email" placeholder="Email" autocomplete="username" required><input id="pw" type="password" placeholder="Password" autocomplete="current-password" required><button class="big">Sign in</button><div id="fm" class="err">${esc(msg || "")}</div></form>`;
   $("f").onsubmit = async (e) => { e.preventDefault(); $("fm").textContent = ""; try { await be.signIn($("em").value.trim(), $("pw").value); await boot(); } catch (er) { $("fm").textContent = er.message || "Sign-in failed"; } };
 }
+const day = (t) => t ? new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "2-digit" }) : "—";
+const tabsHtml = (counts) => `<div class="tabs">${["pending", "approved", "rejected", "users"].map((t) => `<button data-t="${t}" class="${t === tab ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}${t === "pending" && counts !== null ? ` (${counts})` : ""}</button>`).join("")}
+      <button data-r="1" class="ghost" style="margin-left:auto">Refresh</button></div>`;
+function wire() {
+  main.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => { tab = b.dataset.t; armed = null; render(); }));
+  main.querySelector("[data-r]").onclick = render;
+}
+async function renderUsers() {
+  let s = null, users = [], err = "";
+  try { [s, users] = await Promise.all([be.adminStats(), be.adminUsers(ufilter)]); } catch (e) { err = e.message || String(e); }
+  const tile = (n, label, hi) => `<div class="stat${hi ? " hi" : ""}"><b>${esc(n)}</b><span>${label}</span></div>`;
+  main.innerHTML = `${tabsHtml(s ? s.pending : null)}
+    ${err ? `<div class="note err">${esc(err)}</div>` : `<div class="stats">
+      ${tile(s.registered, "Registered accounts")}${tile(s.paid, "Paid (lifetime)", 1)}${tile(s.registered - s.paid, "Free accounts")}
+      ${tile(rupees(s.revenue_paise), `UPI revenue · ${s.paid_upi} paid via UPI`, 1)}${tile(s.active_today, "Used it today")}${tile(s.active_7d, "Used it in last 7 days")}
+      ${tile(s.new_today, "Signed up today")}${tile(s.new_7d, "Signed up in last 7 days")}</div>
+    <div class="filters">${["all", "paid", "free"].map((f) => `<button data-f="${f}" class="${f === ufilter ? "on" : ""}">${f[0].toUpperCase() + f.slice(1)}</button>`).join("")}</div>
+    <div class="ulist">${!users.length ? `<div class="empty">No ${ufilter === "all" ? "" : ufilter + " "}accounts yet.</div>` : users.map((u) => `<div class="urow"><div><div class="email">${esc(u.email)}</div>
+      <div class="umeta">Joined ${day(u.joined)} · ${u.minutes_total} min used${u.last_active ? ` · last used ${day(u.last_active)}` : ""}${u.confirmed ? "" : " · email not confirmed"}</div></div>
+      <span class="tag ${u.lifetime ? "paid" : ""}">${u.lifetime ? "Paid" : "Free"}</span></div>`).join("")}</div>
+    ${users.length >= 500 ? `<p class="umeta">Showing the newest 500.</p>` : ""}`}`;
+  wire();
+  main.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => { ufilter = b.dataset.f; render(); }));
+  document.title = "Wavelume · Users";
+  timer = setTimeout(render, 60000);
+}
 async function render() {
   clearTimeout(timer);
+  if (tab === "users") return renderUsers();
   let list = [], err = "";
   try { list = await be.adminList(tab); } catch (e) { err = e.message || String(e); }
   const counts = tab === "pending" ? list.length : null;
   main.innerHTML = `${flash ? `<div class="note err">${esc(flash)}</div>` : ""}
     <div class="tip">Before approving, open your UPI / bank app and check a payment of <b>${esc(cfg.priceLabel || "₹99")}</b> arrived with that <b>transaction ID (UTR)</b>. The note should contain the user's code. Approving unlocks their account instantly.</div>
-    <div class="tabs">${["pending", "approved", "rejected"].map((t) => `<button data-t="${t}" class="${t === tab ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}${t === "pending" && counts !== null ? ` (${counts})` : ""}</button>`).join("")}
-      <button data-r="1" class="ghost" style="margin-left:auto">Refresh</button></div>
+    ${tabsHtml(counts)}
     <div id="list">${err ? `<div class="note err">${esc(err)}</div>` : !list.length ? `<div class="empty">Nothing ${tab} right now.</div>` : list.map(card).join("")}</div>`;
-  main.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => { tab = b.dataset.t; armed = null; render(); }));
-  main.querySelector("[data-r]").onclick = render;
+  wire();
   main.querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => decide(b)));
   document.title = (tab === "pending" && list.length ? `(${list.length}) ` : "") + "Wavelume · Payments admin";
   timer = setTimeout(render, 30000);
