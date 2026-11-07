@@ -37,6 +37,9 @@
   /* control bar */
   #bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));z-index:7;width:min(1040px,calc(100vw - 20px));background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:8px 12px 10px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:opacity .4s,transform .4s;box-shadow:0 8px 30px rgba(0,0,0,.5)}
   body.hideui #bar,body.hideui #toast.ui{opacity:0;pointer-events:none}
+  body.fs #toast,body.fs #iosHint{display:none!important}
+  body.fs.hideui #start,body.fs.hideui #acct,body.fs.hideui .menu,body.fs.hideui #pl{opacity:0!important;pointer-events:none!important}
+  body.fs.hideui,body.fs.hideui *{cursor:none!important}
   body.hideui #bar{transform:translate(-50%,20px)}
   #seekrow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
   input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:20px;flex:1;min-width:0;cursor:pointer}
@@ -902,6 +905,7 @@ addEventListener('drop',e=>{e.preventDefault();dragN=0;document.body.classList.r
 
 /* fullscreen + auto-hide UI */
 function toggleFS(){
+  if(document.body.classList.contains('immersive')){document.body.classList.remove('immersive','fs');wake();return;}
   const d=document,el=d.documentElement;
   const inFS=d.fullscreenElement||d.webkitFullscreenElement;
   try{
@@ -910,15 +914,18 @@ function toggleFS(){
       if(r){const p=r.call(el);if(p&&p.catch)p.catch(immersive);}else immersive();}
   }catch(e){immersive();}
 }
-function immersive(){document.body.classList.add('hideui');toast('Immersive mode','Tap the screen to bring controls back');}
+function immersive(){document.body.classList.add('fs','immersive','hideui');}
+const inFS=()=>!!(document.fullscreenElement||document.webkitFullscreenElement)||document.body.classList.contains('immersive');
+const vizActive=()=>!!(window.VIZ&&window.VIZ.isActive&&window.VIZ.isActive());
 $('fs').onclick=toggleFS;
 let idleT=0;
-function wake(){document.body.classList.remove('hideui');clearTimeout(idleT);idleT=setTimeout(()=>{if(!P.paused&&!$('pl').classList.contains('open'))document.body.classList.add('hideui');},3200);}
+function hideNow(){$('pl').classList.remove('open');const sm=$('srcmenu');if(sm)sm.classList.remove('open');const am=$('acctMenu');if(am)am.classList.remove('open');document.body.classList.add('hideui');}
+function wake(){document.body.classList.remove('hideui');clearTimeout(idleT);idleT=setTimeout(()=>{if(document.body.classList.contains('locked'))return;if(inFS()||(vizActive()&&!$('pl').classList.contains('open')))hideNow();},inFS()?1500:3200);}
 addEventListener('mousemove',wake);addEventListener('keydown',wake);
 let lastTap=0;
 function surfaceTap(e){if(e.target!==glc&&e.target!==c2d&&e.target.id!=='start')return;
   const n=Date.now();if(n-lastTap<320){toggleFS();lastTap=0;return;}lastTap=n;
-  if(document.body.classList.contains('hideui'))wake();else if(e.pointerType==='touch'&&!P.paused){document.body.classList.add('hideui');}}
+  if(document.body.classList.contains('hideui'))wake();else if(e.pointerType==='touch'&&(vizActive()||inFS())){document.body.classList.add('hideui');}}
 addEventListener('pointerup',surfaceTap);
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'&&e.target.type!=='range')return;
@@ -939,8 +946,9 @@ const unlock=()=>{if(actx&&actx.state!=='running')actx.resume();};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){unlock();qAvg=16.7;}});
 addEventListener('dblclick',e=>e.preventDefault());
 document.addEventListener('gesturestart',e=>e.preventDefault());
-document.addEventListener('fullscreenchange',()=>setTimeout(resize,150));
-document.addEventListener('webkitfullscreenchange',()=>setTimeout(resize,150));
+function onFSChange(){const f=!!(document.fullscreenElement||document.webkitFullscreenElement);document.body.classList.toggle('fs',f);if(!f)document.body.classList.remove('immersive');setTimeout(resize,150);if(f){clearTimeout(idleT);idleT=setTimeout(()=>{if(inFS()&&!document.body.classList.contains('locked'))hideNow();},800);}else wake();}
+document.addEventListener('fullscreenchange',onFSChange);
+document.addEventListener('webkitfullscreenchange',onFSChange);
 
 /* go */
 if(gl){viz.value='random';mode='random';randomPreset();}else{viz.value='bars';setMode('bars');}window.__dbg=()=>({bpm:bt.bpm,period:bt.period,beats:bt.count,hue:tone.hue,clarity:tone.clarity,centroid:tone.centroid,preset:PRESETS[presetIdx].name,morphing:!!target,kick:lv.kick});
