@@ -6,31 +6,40 @@
   const LS = "wavelume_timer_v1";
   const saved = (() => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch (_) { return {}; } })();
   const cfg = Object.assign({ mode: "countdown", cdMin: 25, cdSec: 0, focus: 25, short: 5, long: 15, every: 4,
-    size: "m", chime: true, autoNext: true }, saved.cfg || {});
+    size: "m", theme: "glass", chime: true, autoNext: true }, saved.cfg || {});
   const save = () => { try { localStorage.setItem(LS, JSON.stringify({ cfg })); } catch (_) {} };
 
   /* ───────── styles ───────── */
   const css = `
-  #flipclock{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;display:none;flex-direction:column;align-items:center;gap:calc(var(--h)*.16);pointer-events:none;--h:min(20vh,13vw);--w:calc(var(--h)*.68);--r:calc(var(--h)*.09)}
+  #flipclock{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;display:none;flex-direction:column;align-items:center;gap:calc(var(--h)*.16);pointer-events:none;--h:min(28vh,21vw);--w:calc(var(--h)*.68);--r:calc(var(--h)*.1)}
   #flipclock.on{display:flex}
-  #flipclock.s{--h:min(11vh,8vw)}#flipclock.l{--h:min(30vh,19vw)}
+  #flipclock.s{--h:min(17vh,14vw)}#flipclock.l{--h:min(42vh,29vw)}
+  #flipclock.hms{--h:min(28vh,15vw)}#flipclock.hms.s{--h:min(17vh,11vw)}#flipclock.hms.l{--h:min(42vh,19.5vw)}
   #fcLabel{font:600 calc(var(--h)*.13)/1 "Segoe UI",system-ui,-apple-system,sans-serif;letter-spacing:.42em;text-transform:uppercase;color:rgba(255,255,255,.82);text-shadow:0 2px 12px rgba(0,0,0,.7);padding-left:.42em}
   #fcDigits{display:flex;align-items:center;gap:calc(var(--h)*.07)}
   .fcGroup{display:flex;gap:calc(var(--h)*.05)}
   .fcSep{display:flex;flex-direction:column;gap:calc(var(--h)*.2);padding:0 calc(var(--h)*.04)}
   .fcSep i{display:block;width:calc(var(--h)*.075);height:calc(var(--h)*.075);border-radius:50%;background:rgba(240,244,255,.85);box-shadow:0 0 calc(var(--h)*.1) rgba(0,0,0,.6)}
-  .fd{position:relative;width:var(--w);height:var(--h);perspective:calc(var(--h)*5);font:700 calc(var(--h)*.74)/1 "Segoe UI","Helvetica Neue",system-ui,-apple-system,sans-serif;color:#eef1f7;font-variant-numeric:tabular-nums;filter:drop-shadow(0 calc(var(--h)*.06) calc(var(--h)*.1) rgba(0,0,0,.55))}
-  .fd>div{position:absolute;left:0;right:0;height:50%;overflow:hidden;background:linear-gradient(180deg,rgba(38,40,48,.93),rgba(24,25,31,.93));backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  /* themes: black (solid charcoal), white (paper), glass (frosted, iOS-style) */
+  #flipclock{--fg:#eef1f7;--ct:linear-gradient(180deg,#2a2c34,#1b1c22);--cb:linear-gradient(180deg,#17181d,#22242b);--hinge:rgba(0,0,0,.7);--shadow:0 calc(var(--h)*.05) calc(var(--h)*.12) rgba(0,0,0,.55);--edge:none;--txs:none}
+  #flipclock.white{--fg:#16181d;--ct:linear-gradient(180deg,#ffffff,#eef0f3);--cb:linear-gradient(180deg,#e7e9ed,#f7f8fa);--hinge:rgba(0,0,0,.16);--shadow:0 calc(var(--h)*.05) calc(var(--h)*.14) rgba(0,0,0,.45)}
+  #flipclock.glass{--fg:#fff;--ct:linear-gradient(180deg,rgba(255,255,255,.26),rgba(255,255,255,.12));--cb:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.16));--hinge:rgba(255,255,255,.28);--shadow:0 calc(var(--h)*.04) calc(var(--h)*.16) rgba(0,0,0,.28);--edge:1px solid rgba(255,255,255,.32);--txs:0 calc(var(--h)*.02) calc(var(--h)*.08) rgba(0,0,0,.35)}
+  .fd{position:relative;width:var(--w);height:var(--h);perspective:calc(var(--h)*5);font:700 calc(var(--h)*.74)/1 "Segoe UI","Helvetica Neue",system-ui,-apple-system,sans-serif;color:var(--fg);font-variant-numeric:tabular-nums;border-radius:var(--r);box-shadow:var(--shadow);text-shadow:var(--txs)}
+  .fd>div{position:absolute;left:0;right:0;height:50%;overflow:hidden;background:var(--ct);backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  #flipclock.glass .fd>div{-webkit-backdrop-filter:blur(calc(var(--h)*.12)) saturate(180%);backdrop-filter:blur(calc(var(--h)*.12)) saturate(180%);border:var(--edge)}
+  #flipclock.glass .fd .t,#flipclock.glass .fd .ft{border-bottom:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}
+  #flipclock.glass .fd .b,#flipclock.glass .fd .fb{border-top:0}
+  #flipclock.glass .fd .ft,#flipclock.glass .fd .fb{background:linear-gradient(180deg,rgba(40,44,56,.55),rgba(40,44,56,.4))}
   .fd span{display:block;height:var(--h);line-height:var(--h);text-align:center}
   .fd .t,.fd .ft{top:0;border-radius:var(--r) var(--r) 0 0}
-  .fd .b,.fd .fb{bottom:0;border-radius:0 0 var(--r) var(--r);background:linear-gradient(180deg,rgba(22,23,29,.93),rgba(30,32,39,.93))}
+  .fd .b,.fd .fb{bottom:0;border-radius:0 0 var(--r) var(--r);background:var(--cb)}
   .fd .b span,.fd .fb span{margin-top:calc(var(--h)/-2)}
   .fd .ft{transform-origin:50% 100%;z-index:3}
   .fd .fb{transform-origin:50% 0;transform:rotateX(90deg);z-index:3}
   .fd.flip .ft{animation:fcTop .26s ease-in forwards}
   .fd.flip .fb{animation:fcBot .26s .26s ease-out forwards}
   .fd.flip .ft:after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.35);animation:fcShade .26s ease-in forwards}
-  .fd:after{content:"";position:absolute;left:0;right:0;top:calc(50% - 1px);height:2px;background:rgba(0,0,0,.65);z-index:5}
+  .fd:after{content:"";position:absolute;left:0;right:0;top:calc(50% - 1px);height:2px;background:var(--hinge);z-index:5}
   @keyframes fcTop{to{transform:rotateX(-90deg)}}@keyframes fcBot{from{transform:rotateX(90deg)}to{transform:rotateX(0)}}
   @keyframes fcShade{from{opacity:0}to{opacity:1}}
   #fcBar{width:100%;height:calc(var(--h)*.025);min-height:2px;border-radius:9px;background:rgba(255,255,255,.14);overflow:hidden}
@@ -38,7 +47,7 @@
   #fcDots{display:flex;gap:calc(var(--h)*.07)}#fcDots i{width:calc(var(--h)*.06);height:calc(var(--h)*.06);border-radius:50%;background:rgba(255,255,255,.25)}#fcDots i.on{background:rgba(255,255,255,.85)}
   #flipclock.done .fd{animation:fcPulse 1s ease-in-out infinite}
   @keyframes fcPulse{50%{opacity:.35}}
-  #flipclock.paused .fd{color:rgba(238,241,247,.5)}
+  #flipclock.paused .fd span{opacity:.5}
   /* panel */
   #tpanel{position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(140px + env(safe-area-inset-bottom));z-index:9;width:min(380px,calc(100vw - 24px));background:var(--glass,rgba(12,14,18,.82));border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:none;color:#e8ecf2;font:14px/1.3 "Segoe UI",system-ui,-apple-system,sans-serif}
   #tpanel.open{display:block}
@@ -83,6 +92,7 @@
     </div>
     <div data-pane="stopwatch"><div class="row" style="color:#9aa3b2;font-size:13px">Counts up from zero. Great for live study streams.</div></div>
     <div class="actions"><button class="go" id="tGo">Start</button><button id="tReset">Reset</button><button id="tHide">Hide clock</button></div>
+    <div class="sub"><span class="sizes">Style <button data-th="black">Black</button> <button data-th="white">White</button> <button data-th="glass">Glass</button></span></div>
     <div class="sub"><span class="sizes">Size <button data-s="s">S</button> <button data-s="m">M</button> <button data-s="l">L</button></span>
       <label><input type="checkbox" id="tChime"> Chime</label><label id="tAutoL"><input type="checkbox" id="tAuto"> Auto-start next</label></div>`;
   document.body.appendChild(panel);
@@ -151,7 +161,7 @@
     const dots = $("fcDots");
     if (state.mode === "pomodoro") { dots.style.display = ""; dots.innerHTML = Array.from({ length: cfg.every }, (_, i) => `<i class="${i < state.round - (state.phase === "focus" ? 1 : 0) ? "on" : ""}"></i>`).join(""); }
     else dots.style.display = "none";
-    clock.className = ["on", cfg.size === "m" ? "" : cfg.size, state.done ? "done" : "", !state.running && !state.done ? "paused" : ""].join(" ").trim();
+    clock.className = ["on", cfg.size === "m" ? "" : cfg.size, cfg.theme, layout === "hhmmss" ? "hms" : "", state.done ? "done" : "", !state.running && !state.done ? "paused" : ""].filter(Boolean).join(" ");
     if (!state.shown) clock.classList.remove("on");
     document.body.classList.toggle("timeron", state.shown);
     $("tGo").textContent = state.running ? "Pause" : (current() > 0 && current() < planned()) || (state.mode === "stopwatch" && state.swAcc > 0) ? "Resume" : "Start";
@@ -234,6 +244,8 @@
   panel.querySelectorAll("[data-min]").forEach((b) => (b.onclick = () => { cfg.cdMin = +b.dataset.min; cfg.cdSec = 0; $("tcMin").value = cfg.cdMin; $("tcSec").value = 0; save(); pause(); resetTimer(); start(); }));
   const setSize = (s) => { cfg.size = s; save(); panel.querySelectorAll("[data-s]").forEach((b) => b.classList.toggle("on", b.dataset.s === s)); render(false); };
   panel.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => setSize(b.dataset.s)));
+  const setTheme = (t) => { cfg.theme = t; save(); panel.querySelectorAll("[data-th]").forEach((b) => b.classList.toggle("on", b.dataset.th === t)); render(false); };
+  panel.querySelectorAll("[data-th]").forEach((b) => (b.onclick = () => setTheme(b.dataset.th)));
   $("tGo").onclick = () => (state.running ? pause() : start());
   $("tReset").onclick = () => { if (state.mode === "pomodoro") { state.phase = "focus"; state.round = 1; } resetTimer(); };
   $("tHide").onclick = () => { state.shown = !state.shown; render(false); };
@@ -250,6 +262,6 @@
   // keep the hide-clock button label in sync
   new MutationObserver(() => ($("tHide").textContent = state.shown ? "Hide clock" : "Show clock")).observe(clock, { attributes: true });
 
-  setMode(cfg.mode); setSize(cfg.size);
+  setMode(cfg.mode); setSize(cfg.size); setTheme(cfg.theme);
   window.WLTimer = { state, cfg, start, pause, reset: resetTimer, setMode, finish };
 })();
