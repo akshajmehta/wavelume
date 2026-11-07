@@ -50,7 +50,13 @@ async function supabaseBackend(cfg) {
     async deleteAccount() { await fn("delete-account"); await sb.auth.signOut(); },
     async status() { const { data, error } = await sb.rpc("get_status"); if (error) throw error; return norm(data); },
     async useTime(seconds) { const { data, error } = await sb.rpc("use_time", { p_seconds: seconds }); if (error) throw error; return norm(data); },
+    async submitPayment(utr) { const { data, error } = await sb.rpc("submit_payment", { p_utr: utr }); if (error) throw error; return data; },
+    async paymentStatus() { const { data, error } = await sb.rpc("my_payment_status"); return error ? null : data; },
+    async isAdmin() { const { data, error } = await sb.rpc("is_admin"); return !error && !!data; },
+    async adminList(status) { const { data, error } = await sb.rpc("admin_list_requests", { p_status: status }); if (error) throw error; return data || []; },
+    async adminDecide(id, approve) { const { data, error } = await sb.rpc("admin_decide", { p_id: id, p_approve: approve }); if (error) throw error; return data; },
     async price() {
+      if (cfg.upi) return cfg.priceLabel;
       const c = await fn("config");
       try { return new Intl.NumberFormat(undefined, { style: "currency", currency: c.currency, maximumFractionDigits: 0 }).format(c.amount / 100); }
       catch (_) { return null; }
@@ -102,6 +108,7 @@ async function demoBackend(cfg) {
     return { lifetime: !!u.lifetime, used: d.usage[d.session + "|" + utcDay()] | 0, limit: cfg.freeSecondsPerDay, resetsAt: nextUtcMidnight() };
   };
   const err = (m) => Object.assign(new Error(m), { demo: true });
+  const refOf = (email) => [...email].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).toUpperCase().padStart(6, "0").slice(0, 6);
   return {
     mode: "demo",
     async session() { const d = load(); return d.session ? { id: d.session, email: d.session } : null; },
@@ -133,6 +140,23 @@ async function demoBackend(cfg) {
       return status();
     },
     async price() { return cfg.priceLabel; },
+    async submitPayment(utr) {
+      const d = load(), clean = String(utr || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+      if (!/^[0-9A-Z]{10,22}$/.test(clean)) throw err("That doesn't look like a UPI transaction ID. It is usually 12 digits.");
+      d.reqs = d.reqs || [];
+      if (d.reqs.some((r) => r.utr === clean)) throw err("This transaction ID has already been submitted.");
+      d.reqs.push({ id: d.reqs.length + 1, email: d.session, utr: clean, ref_code: refOf(d.session), amount: (cfg.upi ? cfg.upi.amount : 99) * 100, status: "pending", created_at: new Date().toISOString() });
+      save(d); return { status: "pending", utr: clean };
+    },
+    async paymentStatus() { const d = load(), r = (d.reqs || []).filter((x) => x.email === d.session).pop(); return r ? { status: r.status, utr: r.utr } : null; },
+    async isAdmin() { return load().session === "akshaj001@gmail.com"; },
+    async adminList(status) { const d = load(); return (d.reqs || []).filter((r) => !status || r.status === status).reverse(); },
+    async adminDecide(id, approve) {
+      const d = load(), r = (d.reqs || []).find((x) => x.id === id); if (!r) throw err("request not found");
+      r.status = approve ? "approved" : "rejected"; r.decided_at = new Date().toISOString();
+      if (approve && d.users[r.email]) d.users[r.email].lifetime = true;
+      save(d); return { id, status: r.status };
+    },
     async checkout(ui) {
       if (!(await ui.confirm("Demo purchase", "This is demo mode — no payment is taken and the unlock only exists in this browser.", "Unlock (demo)"))) return false;
       const d = load(); d.users[d.session].lifetime = true; save(d); return true;
