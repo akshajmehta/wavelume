@@ -290,7 +290,12 @@ async function startLive(kind){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("This browser can't capture audio",isIOS?'Open the site in Safari':'Try Chrome, Edge or Safari');return false;}
   liveStarting=true;
   try{
-    initAudio(); if(actx.state!=='running') actx.resume().catch(()=>{});
+    initAudio();
+    if(isIOS&&kind==='mic'){
+      // iOS can only switch into recording if nothing is holding the audio device in playback mode
+      try{ if(navigator.audioSession) navigator.audioSession.type='play-and-record'; }catch(e){}
+      try{ if(live) stopLive(true); P.pause(); if(actx.state==='running') await actx.suspend(); }catch(e){}
+    } else if(actx.state!=='running') actx.resume().catch(()=>{});
     let stream; const slow=setTimeout(()=>toast('Waiting for microphone permission…',isIOS?'Tap “Allow” — or Settings › Safari › Microphone':'Check the permission prompt near the address bar'),5000);
     try{
       if(kind==='system'){
@@ -299,14 +304,19 @@ async function startLive(kind){
         stream.getVideoTracks().forEach(t=>t.stop());
         if(!stream.getAudioTracks().length){toast('No audio was shared','Tick “Share audio” (or “Share system audio”) in the picker');return false;}
       }else{
-        const want=isIOS?{echoCancellation:false,noiseSuppression:false,autoGainControl:false}:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2};
+        const want=isIOS?true:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2};
         try{stream=await navigator.mediaDevices.getUserMedia({audio:want});}
-        catch(e){ if(e&&(e.name==='NotAllowedError'||e.name==='SecurityError'))throw e; stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+        catch(e){
+          if(e&&(e.name==='NotAllowedError'||e.name==='SecurityError'))throw e;
+          await new Promise(r=>setTimeout(r,400)); // iOS: give the audio session a moment, then retry plainly
+          stream=await navigator.mediaDevices.getUserMedia({audio:true});
+        }
       }
     }catch(e){
       const denied=e&&(e.name==='NotAllowedError'||e.name==='SecurityError');
+      try{ if(isIOS&&navigator.audioSession) navigator.audioSession.type='auto'; }catch(_){}
       toast(denied?(kind==='system'?'Sharing was cancelled':'Microphone access was blocked'):'Could not start live audio',
-        denied&&kind!=='system'?(isIOS?'Settings › Safari › Microphone → Allow, then reload':'Allow the microphone in your browser’s site settings'):((e&&e.name)||'Unknown error'));
+        denied&&kind!=='system'?(isIOS?'Settings › Safari › Microphone → Allow, then reload':'Allow the microphone in your browser’s site settings'):(((e&&e.name)||'Unknown error')+(e&&e.message?' — '+String(e.message).slice(0,90):'')+(isIOS?' · Close other apps using audio, then reload':'')));
       return false;
     }finally{clearTimeout(slow);}
     stopLive(true); P.pause();
@@ -336,6 +346,7 @@ function stopLive(silent){
   try{l.src.disconnect();l.gain.disconnect();}catch(e){}
   l.stream.getTracks().forEach(t=>t.stop());
   if(mainGraph&&l.graph&&l.graph!==mainGraph){ useGraph(mainGraph); try{l.graph.actx.close();}catch(e){} }
+  try{ if(isIOS&&navigator.audioSession) navigator.audioSession.type='auto'; }catch(e){}
   document.body.classList.remove('islive');
   if(!silent){$('title').textContent=idx>=0&&list[idx]?clean(list[idx].name):'No song loaded';toast('Live audio stopped','');}
   setIcon();
