@@ -15,7 +15,7 @@ window.APP_CONFIG = {
   // this number is only used in demo mode.
   freeSecondsPerDay: 240,
   // New accounts get this many hours of unlimited use first (must match free_trial_hours() in trial.sql).
-  trialHours: 24,
+  trialHours: 0,
 
   // Shown on the unlock button until the server reports the real price.
   priceLabel: "₹99",
