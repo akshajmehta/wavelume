@@ -1021,6 +1021,23 @@ window.VIZ=Object.assign(window.VIZ||{},{
 });
 window.__viz={setMode,applyPreset,PRESETS,P:()=>({useBuf:P.useBuf,paused:P.paused,time:P.time,dur:P.duration}),fmt:()=>fmt&&{type:fmt.type,gl2:isGL2},quality:()=>quality};
 })();
+/* Keep the screen awake while visuals play (or the study timer runs), so tablets/phones don't dim and lock. */
+(()=>{
+  if(!('wakeLock' in navigator))return;
+  let lock=null, asking=false;
+  const want=()=>!document.hidden&&((window.VIZ&&VIZ.isActive&&VIZ.isActive())||!!(window.WLTimer&&WLTimer.state&&WLTimer.state.running));
+  async function sync(){
+    if(want()){
+      if(lock||asking)return; asking=true;
+      try{ lock=await navigator.wakeLock.request('screen'); lock.addEventListener('release',()=>{lock=null;}); }catch(e){ /* denied (e.g. low-power mode) — nothing else to do */ }
+      asking=false;
+    }else if(lock){ try{await lock.release();}catch(e){} lock=null; }
+  }
+  setInterval(sync,2000);
+  document.addEventListener('visibilitychange',sync);
+  ['click','touchend','keydown'].forEach(ev=>document.addEventListener(ev,()=>setTimeout(sync,300),{passive:true}));
+  window.__wake=()=>({supported:true,held:!!lock,want:want()});
+})();
 </script>
 <script src="timer.js"></script>
 <script src="config.js"></script>
