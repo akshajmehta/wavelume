@@ -268,40 +268,74 @@ function initAudio(){
 /* ---------- LIVE INPUT: microphone, or tab/system audio on desktop browsers ---------- */
 let live=null; // {kind, stream, src, gain}
 const canSystemAudio=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)&&!(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
+const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
+const inAppBrowser=/Instagram|FBAN|FBAV|FB_IAB|Line\/|Snapchat|Twitter|LinkedInApp/i.test(navigator.userAgent);
+let liveStarting=false, mainGraph=null;
+// iOS: a mic stream fed into an AudioContext created *before* the mic was opened can come out silent
+// (sample-rate / audio-session switch), so on iOS the mic gets its own fresh context and analysers.
+function buildLiveGraph(ctx){
+  const a=ctx.createAnalyser(); a.fftSize=FFT; a.smoothingTimeConstant=0.55;
+  const l=ctx.createAnalyser(); l.fftSize=FFT; const r=ctx.createAnalyser(); r.fftSize=FFT;
+  const t=ctx.createAnalyser(); t.fftSize=16384; t.smoothingTimeConstant=0.6;
+  const inp=ctx.createGain(), split=ctx.createChannelSplitter(2);
+  inp.connect(t); inp.connect(a); inp.connect(split); split.connect(l,0); split.connect(r,1);
+  return {actx:ctx,analyser:a,anL:l,anR:r,toneAn:t,anaIn:inp,tdb:new Float32Array(t.frequencyBinCount)};
+}
+function useGraph(g){({actx,analyser,anL,anR,toneAn,anaIn,tdb}=g);}
 async function startLive(kind){
+  if(liveStarting)return false;
   if(!VIZ.canPlay()){VIZ.onBlocked();return false;}
   if(!window.isSecureContext){toast('Live audio needs a secure (https) page','Open the installed app or the https site');return false;}
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("This browser can't capture audio",'Try Chrome, Edge or Safari');return false;}
-  initAudio(); if(actx.state!=='running') actx.resume();
-  let stream;
+  if(inAppBrowser&&kind==='mic'){toast('The mic doesn’t work inside this app’s browser','Tap ⋯ → “Open in browser” (Safari or Chrome), then try again');return false;}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("This browser can't capture audio",isIOS?'Open the site in Safari':'Try Chrome, Edge or Safari');return false;}
+  liveStarting=true;
   try{
-    if(kind==='system'){
-      // browsers only share audio alongside a screen/tab share; the video track is dropped immediately
-      stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},systemAudio:'include',selfBrowserSurface:'exclude'});
-      stream.getVideoTracks().forEach(t=>t.stop());
-      if(!stream.getAudioTracks().length){toast('No audio was shared','Tick “Share audio” (or “Share system audio”) in the picker');return false;}
-    }else{
-      stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2}});
+    initAudio(); if(actx.state!=='running') actx.resume().catch(()=>{});
+    let stream; const slow=setTimeout(()=>toast('Waiting for microphone permission…',isIOS?'Tap “Allow” — or Settings › Safari › Microphone':'Check the permission prompt near the address bar'),5000);
+    try{
+      if(kind==='system'){
+        // browsers only share audio alongside a screen/tab share; the video track is dropped immediately
+        stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},systemAudio:'include',selfBrowserSurface:'exclude'});
+        stream.getVideoTracks().forEach(t=>t.stop());
+        if(!stream.getAudioTracks().length){toast('No audio was shared','Tick “Share audio” (or “Share system audio”) in the picker');return false;}
+      }else{
+        const want=isIOS?{echoCancellation:false,noiseSuppression:false,autoGainControl:false}:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2};
+        try{stream=await navigator.mediaDevices.getUserMedia({audio:want});}
+        catch(e){ if(e&&(e.name==='NotAllowedError'||e.name==='SecurityError'))throw e; stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+      }
+    }catch(e){
+      const denied=e&&(e.name==='NotAllowedError'||e.name==='SecurityError');
+      toast(denied?(kind==='system'?'Sharing was cancelled':'Microphone access was blocked'):'Could not start live audio',
+        denied&&kind!=='system'?(isIOS?'Settings › Safari › Microphone → Allow, then reload':'Allow the microphone in your browser’s site settings'):((e&&e.name)||'Unknown error'));
+      return false;
+    }finally{clearTimeout(slow);}
+    stopLive(true); P.pause();
+    if(!mainGraph)mainGraph={actx,analyser,anL,anR,toneAn,anaIn,tdb};
+    let graph=mainGraph;
+    if(isIOS&&kind==='mic'){
+      const AC=window.AudioContext||window.webkitAudioContext;
+      graph=buildLiveGraph(new AC());
+      useGraph(graph);
     }
+    if(actx.state!=='running'){try{await actx.resume();}catch(e){}}
+    const src=actx.createMediaStreamSource(stream), g=actx.createGain(); g.gain.value=4;
+    src.connect(g); g.connect(anaIn); // NOT connected to the speakers → no feedback howl
+    live={kind,stream,src,gain:g,graph,quiet:0,warned:false,t0:performance.now()};everPlayed=true;
+    stream.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{if(live&&live.stream===stream)stopLive();}));
+    document.body.classList.add('loaded','islive');
+    $('title').textContent=kind==='system'?'● Live — tab / system audio':'● Live — microphone';
+    toast(kind==='system'?'Listening to shared audio':'Listening through the microphone','Play music nearby — visuals follow it live');
+    setIcon(); return true;
   }catch(e){
-    const denied=e&&(e.name==='NotAllowedError'||e.name==='SecurityError');
-    toast(denied?(kind==='system'?'Sharing was cancelled':'Microphone access was blocked'):'Could not start live audio',denied&&kind!=='system'?'Allow the microphone in your browser’s site settings':'');
+    toast('Could not start the microphone',((e&&e.name)||'Error')+(e&&e.message?': '+String(e.message).slice(0,80):''));
     return false;
-  }
-  stopLive(true); P.pause();
-  const src=actx.createMediaStreamSource(stream), g=actx.createGain(); g.gain.value=4;
-  src.connect(g); g.connect(anaIn); // NOT connected to the speakers → no feedback howl
-  live={kind,stream,src,gain:g};everPlayed=true;
-  stream.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{if(live&&live.stream===stream)stopLive();}));
-  document.body.classList.add('loaded','islive');
-  $('title').textContent=kind==='system'?'● Live — tab / system audio':'● Live — microphone';
-  toast(kind==='system'?'Listening to shared audio':'Listening through the microphone','Play music nearby — visuals follow it live');
-  setIcon(); return true;
+  }finally{liveStarting=false;}
 }
 function stopLive(silent){
   if(!live)return; const l=live; live=null;
   try{l.src.disconnect();l.gain.disconnect();}catch(e){}
   l.stream.getTracks().forEach(t=>t.stop());
+  if(mainGraph&&l.graph&&l.graph!==mainGraph){ useGraph(mainGraph); try{l.graph.actx.close();}catch(e){} }
   document.body.classList.remove('islive');
   if(!silent){$('title').textContent=idx>=0&&list[idx]?clean(list[idx].name):'No song loaded';toast('Live audio stopped','');}
   setIcon();
@@ -309,6 +343,8 @@ function stopLive(silent){
 // auto-level: room audio through a mic is much quieter than a file, so normalise what the analysers see
 function levelLive(){
   if(!live)return; let s=0;for(let i=0;i<FFT;i+=4)s+=wave[i]*wave[i];const rms=Math.sqrt(s/(FFT/4));
+  // the mic is open but nothing at all is arriving (dead stream / muted input) → say so once
+  if(rms<1e-7){ if(++live.quiet>240&&!live.warned&&performance.now()-live.t0>4000){live.warned=true;toast('The mic is on but hears nothing',isIOS?'Check the mute switch / Control Centre mic, or reload and try again':'Check your input device and its volume');} } else live.quiet=0;
   const g=live.gain.gain.value; if(rms<1e-5||rms/g<0.0012)return; // never amplify room silence
   const want=Math.max(1,Math.min(60,g*0.16/rms));
   live.gain.gain.value=g+(want-g)*(want<g?0.08:0.015);
