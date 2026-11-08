@@ -267,6 +267,74 @@ async function checkPayment() {
   renderAccount();
 }
 
+/* ───────── first-run tour: points at the real buttons ───────── */
+const TOUR_KEY = "wavelume_tour_v1";
+let tourOn = false, tourEnd = null;
+function tourSteps() {
+  const onStart = !document.body.classList.contains("loaded") && $("startMic") && $("startMic").offsetParent;
+  return [
+    { el: onStart ? "startMic" : "srcbtn", title: "Use your microphone 🎙️",
+      text: "Play music on any speaker or phone nearby — Spotify, YouTube, anything — and tap here. The visuals follow whatever it hears." },
+    { el: onStart ? "startOpen" : "open", title: "Or open your own songs",
+      text: "Pick music files saved on this device (MP3, M4A, WAV…). You can also drag them onto the page." },
+    { el: "timerbtn", title: "Study timer ⏱️", bar: true,
+      text: "Flip clock, Pomodoro or stopwatch — shown big over the visuals. Great for study sessions and streams." },
+    { el: "fs", title: "Go fullscreen", bar: true,
+      text: "Everything else disappears. Move the mouse or tap the screen to bring the controls back." },
+  ];
+}
+function startTour(force) {
+  if (tourOn) return;
+  try { if (!force && localStorage.getItem(TOUR_KEY)) return; } catch (_) {}
+  if (!document.getElementById("tourCss")) {
+    const st = document.createElement("style"); st.id = "tourCss";
+    st.textContent = `#tourHole{position:fixed;z-index:60;border-radius:14px;box-shadow:0 0 0 3px var(--acc,#4fc3ff),0 0 0 200vmax rgba(0,0,0,.72);pointer-events:none;transition:all .35s ease}
+    #tourTip{position:fixed;z-index:61;width:min(320px,calc(100vw - 24px));background:#12151c;border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:16px 16px 12px;color:#e8ecf2;box-shadow:0 12px 40px rgba(0,0,0,.6);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;transition:top .35s ease,left .35s ease}
+    #tourTip h3{margin:0 0 6px;font-size:16px}#tourTip p{margin:0 0 12px;color:#c7cfdb}#tourTip .row{display:flex;align-items:center;gap:8px}
+    #tourTip .dots{flex:1;color:#7d8696;font-size:12px}#tourTip button{border:0;border-radius:10px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+    #tourTip .skip{background:none;color:#9aa3b2;padding:8px 6px}#tourTip .nx{background:var(--acc,#4fc3ff);color:#061018}
+    #tourBlock{position:fixed;inset:0;z-index:59}
+    body.touring #iosHint{display:none!important}body.touring #bar{opacity:1!important;pointer-events:auto!important;transform:translateX(-50%)!important}body.touring{cursor:auto!important}`;
+    document.head.appendChild(st);
+  }
+  const steps = tourSteps(); let i = 0; tourOn = true; document.body.classList.add("touring");
+  const block = document.createElement("div"); block.id = "tourBlock";
+  const hole = document.createElement("div"); hole.id = "tourHole";
+  const tip = document.createElement("div"); tip.id = "tourTip"; tip.setAttribute("role", "dialog");
+  document.body.append(block, hole, tip);
+  const end = (tryMic) => {
+    tourOn = false; tourEnd = null; document.body.classList.remove("touring"); block.remove(); hole.remove(); tip.remove();
+    removeEventListener("resize", place); try { localStorage.setItem(TOUR_KEY, "1"); } catch (_) {}
+    if (tryMic) VIZ.startLive("mic");
+  };
+  function place() {
+    const s = steps[i], el = $(s.el);
+    if (!el || !el.getBoundingClientRect().width) { if (i < steps.length - 1) { i++; return place(); } return end(false); }
+    const r = el.getBoundingClientRect(), pad = 6;
+    Object.assign(hole.style, { left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px" });
+    const last = i === steps.length - 1;
+    tip.innerHTML = `<h3>${s.title}</h3><p>${s.text}</p><div class="row"><span class="dots">${i + 1} of ${steps.length}</span>
+      ${last ? `<button class="skip" data-a="done">Done</button><button class="nx" data-a="mic">Try the mic</button>` : `<button class="skip" data-a="skip">Skip</button><button class="nx" data-a="next">Next</button>`}</div>`;
+    const tw = tip.offsetWidth, th = tip.offsetHeight, gap = 14;
+    let top = r.top - th - gap; if (top < 10) top = r.bottom + gap;
+    if (top + th > innerHeight - 10) top = Math.max(10, innerHeight - th - 10);
+    const left = Math.min(Math.max(10, r.left + r.width / 2 - tw / 2), innerWidth - tw - 10);
+    tip.style.top = top + "px"; tip.style.left = left + "px";
+  }
+  tip.onclick = (e) => {
+    const a = e.target.closest("button") && e.target.closest("button").dataset.a; if (!a) return;
+    if (a === "next") { i++; place(); } else end(a === "mic");
+  };
+  tourEnd = () => end(false);
+  addEventListener("resize", place);
+  setTimeout(place, 50);
+}
+function maybeTour() {
+  // only when nothing else (sign-in, paywall, install hint) is covering the screen
+  setTimeout(() => { if (!document.querySelector(".ov.open") && me) startTour(false); }, 900);
+}
+{ const b = document.createElement("button"); b.id = "acctTour"; b.textContent = "How to use Wavelume"; b.onclick = () => { $("acctMenu").classList.remove("open"); startTour(true); }; $("acctMenu").insertBefore(b, $("acctInstall")); }
+
 /* ───────── account menu ───────── */
 $("acctDelete").onclick = async () => {
   $("acctMenu").classList.remove("open");
@@ -320,6 +388,7 @@ async function afterSignIn(user) {
   me = user; hideAuth(); renderAccount();
   await refreshStatus();
   maybeIosHint();
+  maybeTour();
   checkPayment();
   if (be.isAdmin) be.isAdmin().then((v) => { isAdmin = v; renderAccount(); }).catch(() => {});
   if (st && !st.lifetime && remaining > 0) VIZ.toast(`Signed in — ${fmt(remaining)} of free visuals left today`, "Unlock forever any time from your account menu");
@@ -333,7 +402,7 @@ async function boot() {
   be.onChange(async (ev, user) => {
     if (ev === "PASSWORD_RECOVERY") { showAuth("newpw"); return; }
     if (user && (!me || me.id !== user.id)) await afterSignIn(user);
-    if (!user && me) { me = null; st = null; pending = 0; remaining = 0; payState = null; isAdmin = false; clearInterval(payPoll); VIZ.stopAll(); renderPill(); renderAccount(); hidePaywall(); showAuth("signin"); }
+    if (!user && me) { me = null; st = null; pending = 0; remaining = 0; payState = null; isAdmin = false; clearInterval(payPoll); if (tourEnd) tourEnd(); VIZ.stopAll(); renderPill(); renderAccount(); hidePaywall(); showAuth("signin"); }
   });
   const u = await be.session();
   if (u) await afterSignIn(u); else showAuth("signup");
